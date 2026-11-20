@@ -77,7 +77,16 @@ struct Panel<Content: View>: View {
                     RoundedRectangle(cornerRadius: Theme.cardRadius, style: .continuous)
                         .fill(Theme.card)
                 )
-            if let note = note, !note.isEmpty {
+            noteView
+        }
+    }
+}
+
+extension Panel {
+    @ViewBuilder
+    var noteView: some View {
+        if let note = note {
+            if !note.isEmpty {
                 Text(note)
                     .font(.system(size: 10.5))
                     .foregroundStyle(Color.secondary.opacity(0.8))

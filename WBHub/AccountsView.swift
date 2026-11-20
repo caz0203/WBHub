@@ -136,7 +136,9 @@ struct AccountsView: View {
                             .lineLimit(1)
                         if account.disabled {
                             Pill(text: "停用", color: Theme.err)
-                        } else if account.needsRefresh {
+                        } else if account.expiresAt > 0,
+                                  account.expiresAt < Date().timeIntervalSince1970 + 300,
+                                  !account.refreshToken.isEmpty {
                             Pill(text: "待刷新", color: Theme.warn)
                         }
                     }
@@ -506,11 +508,10 @@ struct ImportView: View {
             }
             var account = Account()
             account.realm = realm
-            account.phone = phone
             account.nickname = phone.isEmpty ? "账号\(store.accounts.count + 1)" : phone
             account.accessToken = at
             account.refreshToken = rt
-            account.uid = account.uid.isEmpty ? Hashing.uuidFrom(at.isEmpty ? rt : at) : account.uid
+            account.uid = Hashing.uuidFrom(at.isEmpty ? rt : at)
             store.upsert(account)
             added += 1
         }

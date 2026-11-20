@@ -25,7 +25,7 @@ struct SettingsView: View {
         .sheet(isPresented: $showRequestLogs) { RequestLogView() }
         .onAppear {
             portText = String(store.settings.port)
-            KeepAlive.shared.sync(enabled: store.settings.backgroundKeepAlive)
+            KeepAlive.shared.sync(enabled: store.settings.backgroundKeepAlive, mode: store.settings.keepAliveMode)
         }
     }
 

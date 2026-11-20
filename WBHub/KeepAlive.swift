@@ -49,6 +49,8 @@ final class KeepAlive: ObservableObject {
     func bootstrap() {
         guard !registered else { return }
         registered = true
+        // batteryLevel 默认是 -1，必须开启监测才有真实值
+        UIDevice.current.isBatteryMonitoringEnabled = true
 
         BGTaskScheduler.shared.register(forTaskWithIdentifier: Self.keepAliveTaskID, using: nil) { task in
             guard let processing = task as? BGProcessingTask else {
@@ -165,14 +167,14 @@ final class KeepAlive: ObservableObject {
     }
 
     private func degradeReason() -> String {
-        if UIDevice.current.isLowPowerModeEnabled { return "已降级：低电量模式，暂停音频" }
+        if ProcessInfo.processInfo.isLowPowerModeEnabled { return "已降级：低电量模式，暂停音频" }
         let t = ProcessInfo.processInfo.thermalState
         if t == .serious || t == .critical { return "已降级：设备温度偏高，暂停音频" }
         return "已降级：电量偏低且未充电，暂停音频"
     }
 
     private func shouldDegrade() -> Bool {
-        if UIDevice.current.isLowPowerModeEnabled { return true }
+        if ProcessInfo.processInfo.isLowPowerModeEnabled { return true }
         let t = ProcessInfo.processInfo.thermalState
         if t == .serious || t == .critical { return true }
         let level = UIDevice.current.batteryLevel
