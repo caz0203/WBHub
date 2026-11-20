@@ -20,12 +20,12 @@ extension Theme {
 
 struct Screen<Content: View>: View {
     let title: String
-    let trailing: AnyView?
+    let trailing: AnyView
     let content: Content
 
     init(_ title: String, trailing: AnyView? = nil, @ViewBuilder content: () -> Content) {
         self.title = title
-        self.trailing = trailing
+        self.trailing = trailing ?? AnyView(EmptyView())
         self.content = content()
     }
 
@@ -43,9 +43,7 @@ struct Screen<Content: View>: View {
             .navigationTitle(title)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                if let trailing = trailing {
-                    ToolbarItem(placement: .navigationBarTrailing) { trailing }
-                }
+                ToolbarItem(placement: .navigationBarTrailing) { trailing }
             }
         }
     }
@@ -133,12 +131,14 @@ struct InfoRow<Trailing: View>: View {
                 Text(title)
                     .font(.system(size: 14))
                     .foregroundStyle(destructive ? Theme.err : Color.primary)
-                if let subtitle = subtitle, !subtitle.isEmpty {
-                    Text(subtitle)
-                        .font(.system(size: 11))
-                        .foregroundStyle(Color.secondary.opacity(0.8))
-                        .lineLimit(2)
-                        .fixedSize(horizontal: false, vertical: true)
+                if let subtitle = subtitle {
+                    if !subtitle.isEmpty {
+                        Text(subtitle)
+                            .font(.system(size: 11))
+                            .foregroundStyle(Color.secondary.opacity(0.8))
+                            .lineLimit(2)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
                 }
             }
             Spacer(minLength: 6)
@@ -307,16 +307,18 @@ struct EmptyHint: View {
                 .foregroundStyle(Color.secondary.opacity(0.85))
                 .multilineTextAlignment(.center)
                 .fixedSize(horizontal: false, vertical: true)
-            if let actionTitle = actionTitle, let action = action {
-                Button(action: action) {
-                    Text(actionTitle)
-                        .font(.system(size: 12, weight: .medium))
-                        .padding(.horizontal, 14).padding(.vertical, 6)
-                        .background(Capsule().fill(Theme.accent.opacity(0.13)))
-                        .foregroundStyle(Theme.accent)
+            if let actionTitle = actionTitle {
+                if let action = action {
+                    Button(action: action) {
+                        Text(actionTitle)
+                            .font(.system(size: 12, weight: .medium))
+                            .padding(.horizontal, 14).padding(.vertical, 6)
+                            .background(Capsule().fill(Theme.accent.opacity(0.13)))
+                            .foregroundStyle(Theme.accent)
+                    }
+                    .buttonStyle(.plain)
+                    .padding(.top, 2)
                 }
-                .buttonStyle(.plain)
-                .padding(.top, 2)
             }
         }
         .frame(maxWidth: .infinity)
