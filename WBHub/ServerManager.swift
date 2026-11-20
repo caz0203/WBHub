@@ -21,6 +21,13 @@ final class ServerManager {
         private let lock = NSLock()
         private var _started = false
         private var _sentRole = false
+        private var _usage: [String: Any]? = nil
+
+        /// 上游末帧返回的 usage
+        var usage: [String: Any]? {
+            get { lock.lock(); defer { lock.unlock() }; return _usage }
+            set { lock.lock(); _usage = newValue; lock.unlock() }
+        }
 
         var started: Bool {
             get { lock.lock(); defer { lock.unlock() }; return _started }
@@ -182,12 +189,18 @@ final class ServerManager {
         let state = StreamState()
         var lastError: Wire.UpstreamError?
         let attempts = max(1, store.settings.retries + 1)
+        let startedAt = Date()
+        var nonStreamUsage: [String: Any]? = nil
+        var usedTarget = fresh
+        var usedURL = Wire.chatBase(for: fresh, override: up.baseOverride(for: fresh)) + "/v2/chat/completions"
 
         for attempt in 0..<attempts {
             let target = attempt == 0 ? fresh : (pickAccount(skip: attempt) ?? fresh)
             let url = Wire.chatBase(for: target, override: up.baseOverride(for: target)) + "/v2/chat/completions"
             var headers = Wire.chatHeaders(account: target, clientIP: nil, conversationID: conversation)
             headers["Content-Type"] = "application/json"
+            usedTarget = target
+            usedURL = url
             let job = ChatJob(url: url, headers: headers, body: shaped, model: model)
 
             do {
@@ -199,6 +212,7 @@ final class ServerManager {
                         box.append(line)
                     }
                     let completion = PromptEngine.aggregate(box.joined, model: model)
+                    nonStreamUsage = completion["usage"] as? [String: Any]
                     switch dialect {
                     case .openai: responder.send(.json(completion))
                     case .anthropic: responder.send(.json(PromptEngine.chatToAnthropic(completion, model: model)))
@@ -206,6 +220,10 @@ final class ServerManager {
                     }
                 }
                 store.requestCount += 1
+                recordLog(model: model, requested: requestedModel, dialect: dialect,
+                          account: usedTarget, url: usedURL, streamed: wantsStream,
+                          status: 200, usage: state.usage ?? nonStreamUsage, startedAt: startedAt,
+                          error: nil)
                 return
             } catch let error as Wire.UpstreamError {
                 lastError = error
@@ -240,6 +258,10 @@ final class ServerManager {
 
         let err = lastError ?? Wire.UpstreamError(kind: .server, status: 502, message: "上游无响应")
         store.log("请求失败：\(err.message)", .err)
+        recordLog(model: model, requested: requestedModel, dialect: dialect,
+                  account: usedTarget, url: usedURL, streamed: wantsStream,
+                  status: err.kind.httpStatus, usage: state.usage ?? nonStreamUsage,
+                  startedAt: startedAt, error: err.message)
         if state.started {
             writer.finish()
         } else {
@@ -276,6 +298,11 @@ final class ServerManager {
 
             guard let data = payload.data(using: .utf8),
                   var chunk = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return }
+
+            // 上游最后一帧会带 usage，抓到就存起来给请求日志用
+            if let usage = chunk["usage"] as? [String: Any], !usage.isEmpty {
+                state.usage = usage
+            }
 
             switch dialect {
             case .openai:
@@ -353,6 +380,56 @@ final class ServerManager {
 
         ensureStart()
         writer.finish()
+    }
+
+    // MARK: - 请求日志
+
+    /// 归一化 usage（上游有 prompt/completion 与 input/output 两套字段）
+    private func tokenCounts(_ usage: [String: Any]?) -> (prompt: Int, completion: Int, reasoning: Int, total: Int) {
+        guard let usage = usage else { return (0, 0, 0, 0) }
+        func n(_ keys: [String]) -> Int {
+            for k in keys {
+                if let v = usage[k] as? NSNumber { return v.intValue }
+                if let t = usage[k] as? String, let i = Int(t) { return i }
+            }
+            return 0
+        }
+        let prompt = n(["prompt_tokens", "input_tokens"])
+        let completion = n(["completion_tokens", "output_tokens"])
+        let reasoning = n(["reasoning_tokens"])
+        var total = n(["total_tokens"])
+        if total == 0 { total = prompt + completion }
+        return (prompt, completion, reasoning, total)
+    }
+
+    /// 把一次请求写进请求日志（模型、上游链接、token、耗时）
+    private func recordLog(model: String, requested: String, dialect: Dialect,
+                           account: Account, url: String, streamed: Bool,
+                           status: Int, usage: [String: Any]?, startedAt: Date,
+                           error: String?) {
+        let t = tokenCounts(usage)
+        var entry = RequestLog()
+        entry.model = requested.isEmpty ? model : requested
+        if let u = URL(string: url), let host = u.host {
+            entry.upstreamURL = host + u.path
+        } else {
+            entry.upstreamURL = url
+        }
+        entry.account = account.displayName
+        switch dialect {
+        case .openai: entry.dialect = "openai"
+        case .anthropic: entry.dialect = "anthropic"
+        case .responses: entry.dialect = "responses"
+        }
+        entry.streamed = streamed
+        entry.status = status
+        entry.promptTokens = t.prompt
+        entry.completionTokens = t.completion
+        entry.reasoningTokens = t.reasoning
+        entry.totalTokens = t.total
+        entry.elapsedMs = Int(Date().timeIntervalSince(startedAt) * 1000)
+        entry.error = error ?? ""
+        store.addRequestLog(entry)
     }
 
     // MARK: - helpers

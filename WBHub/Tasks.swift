@@ -10,7 +10,20 @@ final class TaskRunner {
 
     struct RunResult {
         var steps: [TaskStep] = []
+        /// 上游回执里明确给出的额度累加（很多接口不返回，故不能只靠它）
         var creditEarned: Double = 0
+        /// 跑任务前该账号的剩余积分基线
+        var creditBefore: Double? = nil
+        /// 跑任务后的剩余积分
+        var creditAfter: Double? = nil
+        /// 实际到账 = max(回执累加, 基线差值)，两者都没有则为 0
+        var creditDelta: Double {
+            var best = creditEarned
+            if let a = creditBefore, let b = creditAfter, b > a {
+                best = max(best, b - a)
+            }
+            return best
+        }
         var okCount: Int { steps.filter(\.ok).count }
         var summary: String {
             steps.isEmpty ? "无可执行项" : steps.map { ($0.ok ? "✅ " : "• ") + $0.message }.joined(separator: "\n")
@@ -74,31 +87,63 @@ final class TaskRunner {
         }
         for account in accounts {
             let fresh = await up.ensureFresh(account)
-            store.log("开始跑任务：\(fresh.displayName)", .info)
-            let r = await runOne(fresh, night: night)
+
+            // 跑任务前先拿一次剩余积分作为基线
+            let before = await up.credits(fresh)?.total
+            if let before = before, let idx = store.accounts.firstIndex(where: { $0.id == fresh.id }) {
+                store.accounts[idx].credits = before
+            }
+            store.log("开始跑任务：\(fresh.displayName)" + (before.map { "（当前 \(Self.creditText($0)) 积分）" } ?? ""), .info)
+
+            var r = await runOne(fresh, night: night)
+
+            // 跑完后再取一次，用差值作为「实际到账」
+            let after = await up.credits(fresh)?.total
+            r.creditBefore = before
+            r.creditAfter = after
+
             results.steps.append(contentsOf: r.steps)
             results.creditEarned += r.creditEarned
+            results.creditBefore = (results.creditBefore ?? 0) + (before ?? 0)
+            results.creditAfter = (results.creditAfter ?? 0) + (after ?? 0)
+
             if let idx = store.accounts.firstIndex(where: { $0.id == fresh.id }) {
                 store.accounts[idx].lastRun = Self.stamp()
                 store.accounts[idx].lastCheckin = Self.dayKey()
-                if let c = await up.credits(fresh) {
-                    store.accounts[idx].credits = c.total
+                if let after = after { store.accounts[idx].credits = after }
+            }
+
+            // 差值确认后，补一条汇总步骤，避免用户以为「没加积分」
+            if let before = before, let after = after {
+                let delta = after - before
+                if delta > 0.5 {
+                    results.steps.append(TaskStep(label: "summary", ok: true,
+                                                  message: "\(fresh.displayName)：本次实际到账 +\(Self.creditText(delta)) 积分（\(Self.creditText(before)) → \(Self.creditText(after))）"))
+                } else if abs(delta) < 0.5 {
+                    results.steps.append(TaskStep(label: "summary", ok: true,
+                                                  message: "\(fresh.displayName)：剩余积分未变化（当前 \(Self.creditText(after))），通常表示今日额度已领完或任务尚未达标"))
+                } else {
+                    results.steps.append(TaskStep(label: "summary", ok: true,
+                                                  message: "\(fresh.displayName)：积分减少 \(Self.creditText(-delta))（当前 \(Self.creditText(after))），可能是本机反代调用产生的消耗"))
                 }
             }
         }
         store.save()
-        store.log("任务完成：成功 \(results.okCount)/\(results.steps.count)，共 +\(Int(results.creditEarned)) 积分",
+        let earned = results.creditDelta
+        store.log("任务完成：成功 \(results.okCount)/\(results.steps.count)" +
+                  (earned > 0.5 ? "，实际到账 +\(Self.creditText(earned)) 积分" : ""),
                   results.okCount > 0 ? .ok : .warn)
         return results
     }
 
-    func runOne(_ account: Account, night: Bool) async -> RunResult {
+    func runOne(_ account: Account, night: Bool, onlyCheckin: Bool = false) async -> RunResult {
         var out = RunResult()
         guard account.realm == .cn else {
             out.steps.append(TaskStep(label: "region", ok: false, message: "\(account.displayName)：国际版账号无成长中心任务，可正常反代"))
             return out
         }
         out.steps.append(await checkin(account))
+        if onlyCheckin { return out }
         out.steps.append(await reportActivity(account))
         out.steps.append(await reportDesktopChain(account))
         if let make = await useMakeupCard(account) { out.steps.append(make) }
@@ -241,6 +286,8 @@ final class TaskRunner {
         var out = seed
         var todo: [String] = []
         var claimable: [String] = []
+        // 任务列表里声明的额度：claim 回执不带额度时用它兜底展示
+        var declaredCredit: [String: Double] = [:]
         for row in rows {
             guard let code = (row["task_code"] as? String) ?? (row["code"] as? String), !code.isEmpty else { continue }
             let progress = row["progress"] as? [String: Any]
@@ -248,6 +295,8 @@ final class TaskRunner {
             let target = (progress?["target"] as? NSNumber)?.intValue ?? (row["target"] as? NSNumber)?.intValue ?? 0
             let status = ((row["accept_status"] as? String) ?? (row["status"] as? String) ?? "").lowercased()
             if status == "claimed" || status == "completed" || (row["claimed"] as? Bool) == true { continue }
+            if let c = (row["credit"] as? NSNumber)?.doubleValue { declaredCredit[code] = c }
+            else if let c = (row["reward_credit"] as? NSNumber)?.doubleValue { declaredCredit[code] = c }
             if target > 0 && current >= target { claimable.append(code) }
             else if status.isEmpty || status == "available" || status == "unaccepted" || status == "accepted" {
                 todo.append(code)
@@ -284,9 +333,19 @@ final class TaskRunner {
         }
 
         for code in claimable {
-            let (ok, credit, message) = await claimTask(account, code: code)
-            if ok { out.creditEarned += credit }
-            out.steps.append(TaskStep(label: code, ok: ok, message: message))
+            let (ok, credited, message) = await claimTask(account, code: code)
+            if ok {
+                // 回执没给额度时用任务声明的额度，避免显示「已领取」让人以为没加积分
+                let amount = credited > 0 ? credited : (declaredCredit[code] ?? 0)
+                out.creditEarned += amount
+                var text = message
+                if credited == 0 && amount > 0 {
+                    text = "\(code)：+约\(Self.creditText(amount)) 积分（按任务声明额度）"
+                }
+                out.steps.append(TaskStep(label: code, ok: true, message: text))
+            } else {
+                out.steps.append(TaskStep(label: code, ok: false, message: message))
+            }
         }
         if claimable.isEmpty && todo.isEmpty {
             out.steps.append(TaskStep(label: "tasks", ok: true, message: "\(account.displayName)：成长任务无可结算项"))
@@ -381,10 +440,20 @@ final class TaskRunner {
             return (false, 0, "\(code)：\(message)")
         }
         let data = (env.data as? [String: Any]) ?? [:]
-        let credit = (data["credit"] as? NSNumber)?.doubleValue
-            ?? (data["reward_credit"] as? NSNumber)?.doubleValue ?? 0
-        let energy = (data["energy"] as? NSNumber)?.doubleValue
-            ?? (data["reward_energy"] as? NSNumber)?.doubleValue ?? 0
+
+        // 上游回执字段名不统一，逐一尝试（实测不同活动/任务各不相同）
+        func number(_ obj: [String: Any], _ keys: [String]) -> Double {
+            for k in keys {
+                if let n = obj[k] as? NSNumber { return n.doubleValue }
+                if let s = obj[k] as? String, let d = Double(s) { return d }
+            }
+            return 0
+        }
+        let credit = number(data, ["credit", "reward_credit", "rewardCredit",
+                                   "credit_num", "creditNum", "gain", "amount"])
+        let energy = number(data, ["energy", "reward_energy", "rewardEnergy",
+                                   "energy_num", "energyNum"])
+
         if env.code != 0 {
             let message = env.msg.isEmpty ? "code=\(env.code)" : env.msg
             if message.contains("already") || message.contains("已领取") || message.contains("已领") {
@@ -392,10 +461,21 @@ final class TaskRunner {
             }
             return (false, 0, "\(code)：\(message)")
         }
-        var text = "\(code)：+\(Int(credit)) 积分"
-        if energy > 0 { text += " +\(Int(energy)) 能量" }
-        if credit == 0 && energy == 0 { text = "\(code)：已领取" }
-        return (true, credit, text)
+
+        // credit_delayed=true 表示入账延迟，本轮不当作失败，但要标出来
+        let delayed = (data["credit_delayed"] as? Bool) == true
+            || (data["creditDelayed"] as? Bool) == true
+
+        if credit > 0 {
+            var text = "\(code)：+\(Self.creditText(credit)) 积分"
+            if energy > 0 { text += "、+\(Self.creditText(energy)) 能量" }
+            if delayed { text += "（延迟入账）" }
+            return (true, credit, text)
+        }
+        if energy > 0 {
+            return (true, 0, "\(code)：+\(Self.creditText(energy)) 能量")
+        }
+        return (true, 0, delayed ? "\(code)：已提交，延迟入账" : "\(code)：已领取")
     }
 
     // MARK: - 连登兑换 + 抽奖
@@ -795,6 +875,11 @@ final class TaskRunner {
         f.dateFormat = "yyyy-MM-dd"
         f.timeZone = cal.timeZone
         return f.string(from: date)
+    }
+
+    /// 积分显示：整数不带小数，小数保留一位
+    static func creditText(_ v: Double) -> String {
+        v == v.rounded() ? String(Int(v)) : String(format: "%.1f", v)
     }
 
     static func stamp() -> String {

@@ -14,6 +14,7 @@ final class AppStore: ObservableObject {
     @Published var taskRunning = false
     @Published var requestCount = 0
     @Published var lastError: String = ""
+    @Published var requestLogs: [RequestLog] = []
 
     private let io = DispatchQueue(label: "wbhub.store")
     private var saveWork: DispatchWorkItem?
@@ -27,6 +28,7 @@ final class AppStore: ObservableObject {
     private struct Persisted: Codable {
         var accounts: [Account]
         var settings: Settings
+        var requestLogs: [RequestLog]?
     }
 
     init() { load() }
@@ -37,13 +39,14 @@ final class AppStore: ObservableObject {
         guard let data = try? Data(contentsOf: fileURL) else { return }
         guard let p = try? JSONDecoder().decode(Persisted.self, from: data) else { return }
         accounts = p.accounts
+        requestLogs = p.requestLogs ?? []
         var s = p.settings
         if s.apiKey.isEmpty { s.apiKey = "sk-" + Hashing.randomHex(12) }
         settings = s
     }
 
     func save() {
-        let snapshot = Persisted(accounts: accounts, settings: settings)
+        let snapshot = Persisted(accounts: accounts, settings: settings, requestLogs: requestLogs)
         let url = fileURL
         saveWork?.cancel()
         let work = DispatchWorkItem {
@@ -69,6 +72,32 @@ final class AppStore: ObservableObject {
 
     func clearLogs() { logs.removeAll() }
 
+    // MARK: - 请求日志
+
+    /// 追加一条请求记录；超过上限时丢最旧的
+    func addRequestLog(_ log: RequestLog) {
+        requestLogs.insert(log, at: 0)
+        if requestLogs.count > 300 {
+            requestLogs.removeLast(requestLogs.count - 300)
+        }
+        save()
+    }
+
+    func clearRequestLogs() {
+        requestLogs.removeAll()
+        save()
+    }
+
+    /// 汇总：请求数、tokens、失败数
+    func requestSummary() -> (count: Int, tokens: Int, failed: Int, avgMs: Int) {
+        let count = requestLogs.count
+        let tokens = requestLogs.reduce(0) { $0 + $1.totalTokens }
+        let failed = requestLogs.filter { !$0.ok }.count
+        let okLogs = requestLogs.filter { $0.ok && $0.elapsedMs > 0 }
+        let avg = okLogs.isEmpty ? 0 : okLogs.reduce(0) { $0 + $1.elapsedMs } / okLogs.count
+        return (count, tokens, failed, avg)
+    }
+
     // MARK: - accounts
 
     func upsert(_ account: Account) {
@@ -77,6 +106,13 @@ final class AppStore: ObservableObject {
         } else {
             accounts.append(account)
         }
+        save()
+    }
+
+    /// 就地修改某个账号
+    func update(_ account: Account, _ mutate: (inout Account) -> Void) {
+        guard let idx = accounts.firstIndex(where: { $0.id == account.id }) else { return }
+        mutate(&accounts[idx])
         save()
     }
 
@@ -103,6 +139,15 @@ final class AppStore: ObservableObject {
     }
 
     var baseURL: String { "http://127.0.0.1:\(settings.port)/v1" }
+
+    /// 局域网地址：同 Wi-Fi 下的手机/电脑用这个 Base URL
+    var lanBaseURL: String? {
+        guard let ip = LanIP.current() else { return nil }
+        return "http://\(ip):\(settings.port)/v1"
+    }
+
+    /// 进入设置页或回前台时刷新一次
+    func refreshLanIP() { LanIP.refresh() }
 
     func snapshotHeader() -> String {
         let pool = activeAccounts

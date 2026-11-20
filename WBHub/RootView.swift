@@ -32,15 +32,18 @@ struct RootView: View {
             SettingsView().tabItem { Label(Tab.settings.rawValue, systemImage: Tab.settings.icon) }.tag(Tab.settings)
         }
         .tint(Theme.accent)
-        .onAppear {
-            if store.settings.autoStart && !store.serverRunning {
-                Task { @MainActor in await ServerManager.shared.start() }
-            }
-        }
         .onChange(of: scenePhase) { phase in
-            // 回到前台时确保反代还活着（系统可能回收了监听）
-            if phase == .active, store.settings.autoStart, !store.serverRunning {
-                Task { @MainActor in await ServerManager.shared.start() }
+            switch phase {
+            case .active:
+                if store.settings.autoStart && !store.serverRunning {
+                    Task { @MainActor in await ServerManager.shared.start() }
+                }
+                KeepAlive.shared.enterForeground()
+                store.refreshLanIP()
+            case .background:
+                KeepAlive.shared.enterBackground()
+            default:
+                break
             }
         }
     }

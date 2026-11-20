@@ -94,6 +94,57 @@ enum PromptMode: String, Codable, CaseIterable {
     }
 }
 
+/// 保活策略。iOS 上唯一能真正长期后台驻留的只有「音频会话」，
+/// 其余手段（BGTaskScheduler / beginBackgroundTask）都只是续命，系统随时会回收。
+enum KeepAliveMode: String, Codable, CaseIterable {
+    /// 仅系统续期：零功耗，但切后台几分钟内就会被挂起
+    case system = "sys"
+    /// 真后台 · 省电：8kHz 单声道静音循环，CPU/音频硬件都在最低功耗档
+    case audioEco = "eco"
+    /// 真后台 · 稳定：44.1kHz 静音循环，兼容性最好，功耗略高
+    case audioStd = "std"
+
+    var label: String {
+        switch self {
+        case .system: return "仅系统"
+        case .audioEco: return "真后台·省电"
+        case .audioStd: return "真后台·稳定"
+        }
+    }
+
+    /// 是否会真正占用音频会话（决定能不能后台常驻）
+    var usesAudio: Bool { self != .system }
+
+    /// 相对功耗
+    var cost: String {
+        switch self {
+        case .system: return "零功耗 · 但会被杀"
+        case .audioEco: return "约 1%/小时"
+        case .audioStd: return "约 2-3%/小时"
+        }
+    }
+
+    var detail: String {
+        switch self {
+        case .system:
+            return "只用 BGTask 续期。切后台约 3-10 分钟后连接断开，长时间不用时不可靠。"
+        case .audioEco:
+            return "8kHz 单声道 1 秒静音循环，音频硬件运行在最低功耗档。可长期后台存活，无明显发热。"
+        case .audioStd:
+            return "44.1kHz 静音循环，后台存活最稳，但长时间运行可能有轻微温热，不建议长期开启。"
+        }
+    }
+
+    /// 采样率
+    var sampleRate: Int {
+        switch self {
+        case .system: return 0
+        case .audioEco: return 8000
+        case .audioStd: return 44100
+        }
+    }
+}
+
 struct Settings: Codable, Equatable {
     var port: Int = 8788
     var apiKey: String = "sk-wbhub"
@@ -110,6 +161,7 @@ struct Settings: Codable, Equatable {
     var taskMinute: Int = 5
     var nightTask: Bool = true
     var backgroundKeepAlive: Bool = false
+    var keepAliveMode: KeepAliveMode = .audioEco
     var enableAnthropic: Bool = true
     var enableResponses: Bool = true
     var cnBaseOverride: String = ""
@@ -119,7 +171,7 @@ struct Settings: Codable, Equatable {
     enum CodingKeys: String, CodingKey {
         case port, apiKey, requireAuth, autoStart, defaultModel, promptMode, promptText, disguise,
              forceStreamOptions, retries, autoTask, taskHour, taskMinute, nightTask,
-             backgroundKeepAlive, enableAnthropic, enableResponses,
+             backgroundKeepAlive, keepAliveMode, enableAnthropic, enableResponses,
              cnBaseOverride, globalBaseOverride, requestTimeout
     }
 
@@ -145,6 +197,7 @@ struct Settings: Codable, Equatable {
         taskMinute = value(.taskMinute, 5)
         nightTask = value(.nightTask, true)
         backgroundKeepAlive = value(.backgroundKeepAlive, false)
+        keepAliveMode = value(.keepAliveMode, .audioEco)
         enableAnthropic = value(.enableAnthropic, true)
         enableResponses = value(.enableResponses, true)
         cnBaseOverride = value(.cnBaseOverride, "")
@@ -165,6 +218,52 @@ struct LogLine: Identifiable, Hashable {
         f.dateFormat = "HH:mm:ss"
         return f
     }()
+}
+
+/// 一次反代请求的完整记录：模型、上游链接、token 消耗、耗时。
+struct RequestLog: Identifiable, Codable, Hashable {
+    var id: UUID = UUID()
+    var time: Date = Date()
+    /// 客户端请求的模型名
+    var model: String = ""
+    /// 实际发往上游的 chat 链接（含 base，脱敏后只留 host+path）
+    var upstreamURL: String = ""
+    /// 使用的账号昵称
+    var account: String = ""
+    /// 协议方言：openai / anthropic / responses
+    var dialect: String = "openai"
+    /// 是否流式
+    var streamed: Bool = true
+    /// HTTP 状态
+    var status: Int = 0
+    /// prompt tokens
+    var promptTokens: Int = 0
+    /// completion tokens
+    var completionTokens: Int = 0
+    /// reasoning tokens（上游可能单独给）
+    var reasoningTokens: Int = 0
+    /// 总 tokens
+    var totalTokens: Int = 0
+    /// 耗时毫秒
+    var elapsedMs: Int = 0
+    /// 失败原因（空 = 成功）
+    var error: String = ""
+
+    var ok: Bool { error.isEmpty && status >= 200 && status < 300 }
+    var stamp: String {
+        let f = DateFormatter()
+        f.dateFormat = "MM-dd HH:mm:ss"
+        return f.string(from: time)
+    }
+    var tokenSummary: String {
+        if totalTokens > 0 {
+            return "in \(promptTokens) · out \(completionTokens) · 共 \(totalTokens)"
+        }
+        return "未返回用量"
+    }
+    var elapsedText: String {
+        elapsedMs >= 1000 ? String(format: "%.1fs", Double(elapsedMs) / 1000) : "\(elapsedMs)ms"
+    }
 }
 
 struct TaskStep: Identifiable, Hashable {

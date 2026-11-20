@@ -59,4 +59,9 @@ targets:
         UIBackgroundModes:
           - audio
           - fetch
+          - processing
+        BGTaskSchedulerPermittedIdentifiers:
+          - com.xiaoshuai.wbhub.keepalive
+          - com.xiaoshuai.wbhub.refresh
+          - com.xiaoshuai.wbhub.task
         ITSAppUsesNonExemptEncryption: false
