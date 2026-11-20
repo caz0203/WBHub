@@ -5,6 +5,9 @@ on:
     branches: [ main ]
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: macos-latest
@@ -15,12 +18,14 @@ jobs:
       - name: Show toolchain
         run: |
           xcodebuild -version
-          xcodebuild -showsdks | grep -i iphoneos | head -3
           uname -m
+          xcodebuild -showsdks | grep -i iphoneos | head -5
 
-      - name: Build (arm64, unsigned)
+      - name: Build arm64 unsigned
+        id: build
+        continue-on-error: true
         run: |
-          set -e
+          set -o pipefail
           xcodebuild \
             -project WBHub.xcodeproj \
             -scheme WBHub \
@@ -33,13 +38,36 @@ jobs:
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGN_ENTITLEMENTS="" \
-            build
+            build 2>&1 | tee build.log
+          exit ${PIPESTATUS[0]}
+
+      - name: Report errors into repo
+        if: steps.build.outcome == 'failure'
+        run: |
+          {
+            echo "# CI build errors"
+            echo ""
+            echo '```'
+            grep -E "error:|fatal error|BUILD FAILED|The following build commands failed" build.log | sort -u | head -100
+            echo '```'
+            echo ""
+            echo "## tail 120"
+            echo '```'
+            tail -120 build.log
+            echo '```'
+          } > CI-ERRORS.md
+          git config user.name "wbhub-ci"
+          git config user.email "ci@wbhub.local"
+          git add CI-ERRORS.md
+          git commit -m "ci: record build errors" || true
+          git push || true
 
       - name: Package Payload
+        if: steps.build.outcome == 'success'
         run: |
           set -e
           APP="build/Build/Products/Release-iphoneos/WBHub.app"
-          test -d "$APP" || { echo "missing $APP"; ls -R build/Build/Products | head -40; exit 1; }
+          test -d "$APP"
           rm -rf Payload WBHub.ipa
           mkdir -p Payload
           cp -R "$APP" Payload/
@@ -51,18 +79,13 @@ jobs:
           unzip -l WBHub.ipa | head -25
 
       - name: Upload IPA
+        if: steps.build.outcome == 'success'
         uses: actions/upload-artifact@v4
-        if: always()
         with:
           name: WBHub-unsigned-ipa
           path: WBHub.ipa
-          if-no-files-found: warn
           retention-days: 30
 
-      - name: Upload build log on failure
-        if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: build-log
-          path: build/Logs
-          if-no-files-found: ignore
+      - name: Fail if build failed
+        if: steps.build.outcome == 'failure'
+        run: exit 1
