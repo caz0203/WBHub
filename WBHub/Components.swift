@@ -77,21 +77,14 @@ struct Panel<Content: View>: View {
                     RoundedRectangle(cornerRadius: Theme.cardRadius, style: .continuous)
                         .fill(Theme.card)
                 )
-            noteView
-        }
-    }
-}
-
-extension Panel {
-    @ViewBuilder
-    var noteView: some View {
-        if let note = note {
-            if !note.isEmpty {
-                Text(note)
-                    .font(.system(size: 10.5))
-                    .foregroundStyle(Color.secondary.opacity(0.8))
-                    .padding(.horizontal, 5)
-                    .fixedSize(horizontal: false, vertical: true)
+            if let note = note {
+                if !note.isEmpty {
+                    Text(note)
+                        .font(.system(size: 10.5))
+                        .foregroundStyle(Color.secondary.opacity(0.8))
+                        .padding(.horizontal, 5)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
             }
         }
     }
