@@ -5,9 +5,6 @@ on:
     branches: [ main ]
   workflow_dispatch:
 
-permissions:
-  contents: write
-
 jobs:
   build:
     runs-on: macos-latest
@@ -19,7 +16,17 @@ jobs:
         run: |
           xcodebuild -version
           uname -m
-          xcodebuild -showsdks | grep -i iphoneos | head -5
+          sw_vers
+
+      - name: Install xcodegen
+        run: brew install xcodegen
+
+      - name: Generate Xcode project
+        run: |
+          pwd
+          ls -la
+          xcodegen generate --spec project.yml
+          ls -la WBHub.xcodeproj
 
       - name: Build arm64 unsigned
         id: build
@@ -41,26 +48,28 @@ jobs:
             build 2>&1 | tee build.log
           exit ${PIPESTATUS[0]}
 
-      - name: Report errors into repo
+      - name: Report errors
         if: steps.build.outcome == 'failure'
         run: |
           {
             echo "# CI build errors"
             echo ""
             echo '```'
-            grep -E "error:|fatal error|BUILD FAILED|The following build commands failed" build.log | sort -u | head -100
+            grep -E "error:|fatal error|BUILD FAILED|The following build commands failed|SpecValidation" build.log | sort -u | head -100
             echo '```'
             echo ""
-            echo "## tail 120"
+            echo "## tail 150"
             echo '```'
-            tail -120 build.log
+            tail -150 build.log
             echo '```'
           } > CI-ERRORS.md
-          git config user.name "wbhub-ci"
-          git config user.email "ci@wbhub.local"
-          git add CI-ERRORS.md
-          git commit -m "ci: record build errors" || true
-          git push || true
+
+      - name: Upload error report
+        if: steps.build.outcome == 'failure'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ci-errors
+          path: CI-ERRORS.md
 
       - name: Package Payload
         if: steps.build.outcome == 'success'
