@@ -1,0 +1,179 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 56;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		D768B68F01CB1DA7 /* AccountsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7F29D404267B3126 /* AccountsView.swift */; };
+		908884E8062F4466 /* HomeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = EBE5A22779812F57 /* HomeView.swift */; };
+		A3CF360D9880C23D /* HttpServer.swift in Sources */ = {isa = PBXBuildFile; fileRef = FD2EF56ACB03AAA8 /* HttpServer.swift */; };
+		A79E3D88C50F557C /* LoginView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB9B54EDF5241361 /* LoginView.swift */; };
+		9D6E7E002D9C1006 /* Models.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5360765F367D79F7 /* Models.swift */; };
+		F8C384042ABBA03E /* Networking.swift in Sources */ = {isa = PBXBuildFile; fileRef = CD9B80CF769E6E0F /* Networking.swift */; };
+		FDA64AAC16D4E220 /* Presets.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9A71A7010865863D /* Presets.swift */; };
+		8E6946BE6E3580CC /* PromptEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = F317C971083E8CF1 /* PromptEngine.swift */; };
+		8379C63986C77321 /* PromptView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CADA0376A36FE124 /* PromptView.swift */; };
+		56B4747FE4D1A1D7 /* RootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F25B642090A6D5D6 /* RootView.swift */; };
+		B4B08CFE3207E79E /* ServerManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2781832FAF6CA86F /* ServerManager.swift */; };
+		2D926ACEC134AFC4 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6CF4461DE3885269 /* SettingsView.swift */; };
+		05F72029FDF378B9 /* Store.swift in Sources */ = {isa = PBXBuildFile; fileRef = 84A7D3B8C579EA5C /* Store.swift */; };
+		00F6A0C257750126 /* Tasks.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4F20BBA7CC2EA517 /* Tasks.swift */; };
+		B0B25D8B46D373A3 /* TasksView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A70A36DAA0F937BA /* TasksView.swift */; };
+		EAF2A199DE92660D /* Theme.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4CB5988CDA99EDF8 /* Theme.swift */; };
+		E273AF4B2A85B9E3 /* Upstream.swift in Sources */ = {isa = PBXBuildFile; fileRef = EDF1FC046CA6E0FA /* Upstream.swift */; };
+		6A3F04BD00EB64C9 /* WBHubApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 95CF49AE59175FEC /* WBHubApp.swift */; };
+		FB43FECB03ED7EB3 /* Wire.swift in Sources */ = {isa = PBXBuildFile; fileRef = 86D6DCDCA881C7CA /* Wire.swift */; };
+		9539F5807A2BCD30 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = C09F2D3DCB9193CD /* Assets.xcassets */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXFileReference section */
+		7F29D404267B3126 /* AccountsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccountsView.swift; sourceTree = "<group>"; };
+		EBE5A22779812F57 /* HomeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HomeView.swift; sourceTree = "<group>"; };
+		FD2EF56ACB03AAA8 /* HttpServer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HttpServer.swift; sourceTree = "<group>"; };
+		BB9B54EDF5241361 /* LoginView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LoginView.swift; sourceTree = "<group>"; };
+		5360765F367D79F7 /* Models.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Models.swift; sourceTree = "<group>"; };
+		CD9B80CF769E6E0F /* Networking.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Networking.swift; sourceTree = "<group>"; };
+		9A71A7010865863D /* Presets.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Presets.swift; sourceTree = "<group>"; };
+		F317C971083E8CF1 /* PromptEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PromptEngine.swift; sourceTree = "<group>"; };
+		CADA0376A36FE124 /* PromptView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PromptView.swift; sourceTree = "<group>"; };
+		F25B642090A6D5D6 /* RootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RootView.swift; sourceTree = "<group>"; };
+		2781832FAF6CA86F /* ServerManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ServerManager.swift; sourceTree = "<group>"; };
+		6CF4461DE3885269 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
+		84A7D3B8C579EA5C /* Store.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Store.swift; sourceTree = "<group>"; };
+		4F20BBA7CC2EA517 /* Tasks.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Tasks.swift; sourceTree = "<group>"; };
+		A70A36DAA0F937BA /* TasksView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TasksView.swift; sourceTree = "<group>"; };
+		4CB5988CDA99EDF8 /* Theme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Theme.swift; sourceTree = "<group>"; };
+		EDF1FC046CA6E0FA /* Upstream.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Upstream.swift; sourceTree = "<group>"; };
+		95CF49AE59175FEC /* WBHubApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WBHubApp.swift; sourceTree = "<group>"; };
+		86D6DCDCA881C7CA /* Wire.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Wire.swift; sourceTree = "<group>"; };
+		C09F2D3DCB9193CD /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		AFA7E5769E7FE5DC /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		63B682FE702DCC60 /* WBHub.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = WBHub.entitlements; sourceTree = "<group>"; };
+		01CFFED5B2839FD5 /* WBHub.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = WBHub.app; sourceTree = BUILT_PRODUCTS_DIR; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		87FCFB83E39887BB /* Frameworks */ = {isa = PBXFrameworksBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		1E2596561C4086C0 = {isa = PBXGroup; children = (3615802166ACD72D /* WBHub */, 4C36ABD63FEAC37C /* Products */, ); sourceTree = "<group>"; };
+		3615802166ACD72D /* WBHub */ = {isa = PBXGroup; children = (7F29D404267B3126 /* AccountsView.swift */, EBE5A22779812F57 /* HomeView.swift */, FD2EF56ACB03AAA8 /* HttpServer.swift */, BB9B54EDF5241361 /* LoginView.swift */, 5360765F367D79F7 /* Models.swift */, CD9B80CF769E6E0F /* Networking.swift */, 9A71A7010865863D /* Presets.swift */, F317C971083E8CF1 /* PromptEngine.swift */, CADA0376A36FE124 /* PromptView.swift */, F25B642090A6D5D6 /* RootView.swift */, 2781832FAF6CA86F /* ServerManager.swift */, 6CF4461DE3885269 /* SettingsView.swift */, 84A7D3B8C579EA5C /* Store.swift */, 4F20BBA7CC2EA517 /* Tasks.swift */, A70A36DAA0F937BA /* TasksView.swift */, 4CB5988CDA99EDF8 /* Theme.swift */, EDF1FC046CA6E0FA /* Upstream.swift */, 95CF49AE59175FEC /* WBHubApp.swift */, 86D6DCDCA881C7CA /* Wire.swift */, C09F2D3DCB9193CD /* Assets.xcassets */, AFA7E5769E7FE5DC /* Info.plist */, 63B682FE702DCC60 /* WBHub.entitlements */, ); path = WBHub; sourceTree = "<group>"; };
+		4C36ABD63FEAC37C /* Products */ = {isa = PBXGroup; children = (01CFFED5B2839FD5 /* WBHub.app */, ); name = Products; sourceTree = "<group>"; };
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		EC45BDEA4E7508A8 /* WBHub */ = {isa = PBXNativeTarget; buildConfigurationList = 8A3FE43882FD1C26 /* Build configuration list for PBXNativeTarget "WBHub" */; buildPhases = (8A0FF1084CDDB384 /* Sources */, 87FCFB83E39887BB /* Frameworks */, BDA5AD97AF7D7BE7 /* Resources */, ); buildRules = (); dependencies = (); name = WBHub; productName = WBHub; productReference = 01CFFED5B2839FD5 /* WBHub.app */; productType = "com.apple.product-type.application"; };
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		D0143000D72652B4 /* Project object */ = {isa = PBXProject; attributes = {BuildIndependentTargetsInParallel = 1; LastSwiftUpdateCheck = 1500; LastUpgradeCheck = 1500; TargetAttributes = {EC45BDEA4E7508A8 = {CreatedOnToolsVersion = 15.0;};};}; buildConfigurationList = 1511E58EEE8657E6 /* Build configuration list for PBXProject "WBHub" */; compatibilityVersion = "Xcode 14.0"; developmentRegion = en; hasScannedForEncodings = 0; knownRegions = (en, Base, "zh-Hans",); mainGroup = 1E2596561C4086C0; productRefGroup = 4C36ABD63FEAC37C /* Products */; projectDirPath = ""; projectRoot = ""; targets = (EC45BDEA4E7508A8 /* WBHub */, ); };
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		BDA5AD97AF7D7BE7 /* Resources */ = {isa = PBXResourcesBuildPhase; buildActionMask = 2147483647; files = (9539F5807A2BCD30 /* Assets.xcassets in Resources */, ); runOnlyForDeploymentPostprocessing = 0; };
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		8A0FF1084CDDB384 /* Sources */ = {isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (D768B68F01CB1DA7 /* AccountsView.swift in Sources */, 908884E8062F4466 /* HomeView.swift in Sources */, A3CF360D9880C23D /* HttpServer.swift in Sources */, A79E3D88C50F557C /* LoginView.swift in Sources */, 9D6E7E002D9C1006 /* Models.swift in Sources */, F8C384042ABBA03E /* Networking.swift in Sources */, FDA64AAC16D4E220 /* Presets.swift in Sources */, 8E6946BE6E3580CC /* PromptEngine.swift in Sources */, 8379C63986C77321 /* PromptView.swift in Sources */, 56B4747FE4D1A1D7 /* RootView.swift in Sources */, B4B08CFE3207E79E /* ServerManager.swift in Sources */, 2D926ACEC134AFC4 /* SettingsView.swift in Sources */, 05F72029FDF378B9 /* Store.swift in Sources */, 00F6A0C257750126 /* Tasks.swift in Sources */, B0B25D8B46D373A3 /* TasksView.swift in Sources */, EAF2A199DE92660D /* Theme.swift in Sources */, E273AF4B2A85B9E3 /* Upstream.swift in Sources */, 6A3F04BD00EB64C9 /* WBHubApp.swift in Sources */, FB43FECB03ED7EB3 /* Wire.swift in Sources */, ); runOnlyForDeploymentPostprocessing = 0; };
+/* End PBXSourcesBuildPhase section */
+
+/* Begin XCBuildConfiguration section */
+		56FCBA9715A01EDF /* Debug */ = {isa = XCBuildConfiguration; buildSettings = {
+    ALWAYS_SEARCH_USER_PATHS = NO;
+    CLANG_ANALYZER_NONNULL = YES;
+    CLANG_ENABLE_MODULES = YES;
+    CLANG_ENABLE_OBJC_ARC = YES;
+    CLANG_WARN_DOCUMENTATION_COMMENTS = NO;
+    COPY_PHASE_STRIP = NO;
+    ENABLE_STRICT_OBJC_MSGSEND = YES;
+    GCC_C_LANGUAGE_STANDARD = gnu11;
+    IPHONEOS_DEPLOYMENT_TARGET = 15.0;
+    SDKROOT = iphoneos;
+    SWIFT_VERSION = 5.0;
+    ONLY_ACTIVE_ARCH = NO;
+    ENABLE_USER_SCRIPT_SANDBOXING = NO;
+			};
+			name = Debug;
+		};
+		6686418D857EC55D /* Release */ = {isa = XCBuildConfiguration; buildSettings = {
+    ALWAYS_SEARCH_USER_PATHS = NO;
+    CLANG_ANALYZER_NONNULL = YES;
+    CLANG_ENABLE_MODULES = YES;
+    CLANG_ENABLE_OBJC_ARC = YES;
+    CLANG_WARN_DOCUMENTATION_COMMENTS = NO;
+    COPY_PHASE_STRIP = NO;
+    ENABLE_STRICT_OBJC_MSGSEND = YES;
+    GCC_C_LANGUAGE_STANDARD = gnu11;
+    IPHONEOS_DEPLOYMENT_TARGET = 15.0;
+    SDKROOT = iphoneos;
+    SWIFT_VERSION = 5.0;
+    ONLY_ACTIVE_ARCH = NO;
+    ENABLE_USER_SCRIPT_SANDBOXING = NO;
+    SWIFT_COMPILATION_MODE = wholemodule;
+    VALIDATE_PRODUCT = YES;
+			};
+			name = Release;
+		};
+		49FB7B9D7AF93B59 /* Debug */ = {isa = XCBuildConfiguration; buildSettings = {
+    ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+    ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+    CODE_SIGN_ENTITLEMENTS = WBHub/WBHub.entitlements;
+    CODE_SIGN_IDENTITY = "";
+    CODE_SIGNING_ALLOWED = NO;
+    CODE_SIGNING_REQUIRED = NO;
+    CURRENT_PROJECT_VERSION = 1;
+    DEVELOPMENT_TEAM = "";
+    ENABLE_BITCODE = NO;
+    GENERATE_INFOPLIST_FILE = NO;
+    INFOPLIST_FILE = WBHub/Info.plist;
+    INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
+    INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+    LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/Frameworks";
+    MARKETING_VERSION = 1.0.0;
+    PRODUCT_BUNDLE_IDENTIFIER = com.xiaoshuai.wbhub;
+    PRODUCT_NAME = WBHub;
+    SWIFT_EMIT_LOC_STRINGS = YES;
+    SWIFT_OPTIMIZATION_LEVEL = -Onone;
+    SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+    TARGETED_DEVICE_FAMILY = 1,2;
+			};
+			name = Debug;
+		};
+		6253EDEBABEE5853 /* Release */ = {isa = XCBuildConfiguration; buildSettings = {
+    ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+    ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+    CODE_SIGN_ENTITLEMENTS = WBHub/WBHub.entitlements;
+    CODE_SIGN_IDENTITY = "";
+    CODE_SIGNING_ALLOWED = NO;
+    CODE_SIGNING_REQUIRED = NO;
+    CURRENT_PROJECT_VERSION = 1;
+    DEVELOPMENT_TEAM = "";
+    ENABLE_BITCODE = NO;
+    GENERATE_INFOPLIST_FILE = NO;
+    INFOPLIST_FILE = WBHub/Info.plist;
+    INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
+    INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+    LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/Frameworks";
+    MARKETING_VERSION = 1.0.0;
+    PRODUCT_BUNDLE_IDENTIFIER = com.xiaoshuai.wbhub;
+    PRODUCT_NAME = WBHub;
+    SWIFT_EMIT_LOC_STRINGS = YES;
+    SWIFT_OPTIMIZATION_LEVEL = -O;
+    SWIFT_ACTIVE_COMPILATION_CONDITIONS = "";
+    TARGETED_DEVICE_FAMILY = 1,2;
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		1511E58EEE8657E6 /* Build configuration list for PBXProject "WBHub" */ = {isa = XCConfigurationList; buildConfigurations = (56FCBA9715A01EDF /* Debug */, 6686418D857EC55D /* Release */, ); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release; };
+		8A3FE43882FD1C26 /* Build configuration list for PBXNativeTarget "WBHub" */ = {isa = XCConfigurationList; buildConfigurations = (49FB7B9D7AF93B59 /* Debug */, 6253EDEBABEE5853 /* Release */, ); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release; };
+/* End XCConfigurationList section */
+	};
+	rootObject = D0143000D72652B4 /* Project object */;
+}
