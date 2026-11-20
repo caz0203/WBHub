@@ -8,14 +8,15 @@ struct RootView: View {
     enum Tab: String, CaseIterable {
         case home = "首页"
         case tasks = "任务"
-        case prompt = "提示词"
+        case models = "模型"
         case accounts = "账号"
         case settings = "设置"
+
         var icon: String {
             switch self {
             case .home: return "bolt.horizontal.circle"
             case .tasks: return "checklist"
-            case .prompt: return "text.badge.checkmark"
+            case .models: return "cube.transparent"
             case .accounts: return "person.2.circle"
             case .settings: return "gearshape"
             }
@@ -26,7 +27,7 @@ struct RootView: View {
         TabView(selection: $tab) {
             HomeView().tabItem { Label(Tab.home.rawValue, systemImage: Tab.home.icon) }.tag(Tab.home)
             TasksView().tabItem { Label(Tab.tasks.rawValue, systemImage: Tab.tasks.icon) }.tag(Tab.tasks)
-            PromptView().tabItem { Label(Tab.prompt.rawValue, systemImage: Tab.prompt.icon) }.tag(Tab.prompt)
+            ModelsView().tabItem { Label(Tab.models.rawValue, systemImage: Tab.models.icon) }.tag(Tab.models)
             AccountsView().tabItem { Label(Tab.accounts.rawValue, systemImage: Tab.accounts.icon) }.tag(Tab.accounts)
             SettingsView().tabItem { Label(Tab.settings.rawValue, systemImage: Tab.settings.icon) }.tag(Tab.settings)
         }
