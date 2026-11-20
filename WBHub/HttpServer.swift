@@ -297,8 +297,13 @@ final class HttpServer: @unchecked Sendable {
         }
 
         func start(status: Int, contentType: String) {
-            guard !started else { return }
+            lock.lock()
+            if started { lock.unlock(); return }
             started = true
+            let queued = pending
+            pending.removeAll()
+            lock.unlock()
+
             var head = "HTTP/1.1 \(status) \(HttpServer.reason(status))\r\n"
             head += "Content-Type: \(contentType)\r\n"
             head += "Cache-Control: no-cache\r\n"
@@ -308,7 +313,7 @@ final class HttpServer: @unchecked Sendable {
             head += "\r\n"
             connection.send(content: Data(head.utf8), contentContext: .defaultMessage, isComplete: false,
                             completion: .contentProcessed { _ in })
-            flushPending()
+            for item in queued { sendChunk(item) }
         }
 
         func write(_ chunk: Data) {
@@ -334,6 +339,8 @@ final class HttpServer: @unchecked Sendable {
         /// 无参启动：默认 SSE 头。
         func startSSE() { start(status: 200, contentType: "text/event-stream; charset=utf-8") }
 
+        var isStarted: Bool { lock.lock(); defer { lock.unlock() }; return started }
+
         func finish() {
             lock.lock()
             if closed { lock.unlock(); return }
@@ -350,12 +357,5 @@ final class HttpServer: @unchecked Sendable {
             }
         }
 
-        private func flushPending() {
-            lock.lock()
-            let items = pending
-            pending.removeAll()
-            lock.unlock()
-            for item in items { sendChunk(item) }
-        }
     }
 }

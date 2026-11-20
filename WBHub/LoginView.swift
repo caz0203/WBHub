@@ -93,7 +93,7 @@ struct LoginView: View {
             let s = try await Upstream.shared.startLogin(realm: realm)
             session = s
             status = "已获取链接，请在浏览器完成登录"
-            if let url = URL(string: s.authURL) { UIApplication.shared.open(url) }
+            if let url = URL(string: s.authURL) { await UIApplication.shared.open(url) }
             polling = true
             pollTask?.cancel()
             pollTask = Task { @MainActor in await poll(s) }

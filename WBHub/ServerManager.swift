@@ -1,4 +1,5 @@
 import Foundation
+import SwiftUI
 
 /// 反代核心：把 OpenAI / Anthropic / Responses 请求翻译成上游 chat，再把结果翻回来。
 @MainActor
@@ -8,15 +9,37 @@ final class ServerManager {
     private let server = HttpServer()
     private var store: AppStore { AppStore.shared }
     private var up: Upstream { Upstream.shared }
-    private var rotation: [String: Int] = [:]
+    private var rotation: Int = 0
+
+    nonisolated static var version: String { AppInfo.version }
 
     var running: Bool { store.serverRunning }
     var port: Int { store.settings.port }
 
-    /// 共享给流式闭包的可变状态。
-    final class StreamState: @unchecked Sendable { var started = false; var sentRole = false }
+    /// 流式过程中需要在 @Sendable 回调里改的状态。用锁保护，不依赖 actor 隔离。
+    final class StreamState: @unchecked Sendable {
+        private let lock = NSLock()
+        private var _started = false
+        private var _sentRole = false
 
-    /// 把上游 SSE 收集成字符串（非流式请求用），并发安全。
+        var started: Bool {
+            get { lock.lock(); defer { lock.unlock() }; return _started }
+            set { lock.lock(); _started = newValue; lock.unlock() }
+        }
+        var sentRole: Bool {
+            get { lock.lock(); defer { lock.unlock() }; return _sentRole }
+            set { lock.lock(); _sentRole = newValue; lock.unlock() }
+        }
+        /// 原子地把 started 置 true，返回是否是本次调用完成的切换。
+        func markStarted() -> Bool {
+            lock.lock(); defer { lock.unlock() }
+            if _started { return false }
+            _started = true
+            return true
+        }
+    }
+
+    /// 把上游 SSE 收集成字符串（非流式请求用）。
     final class LineBox: @unchecked Sendable {
         private var lines: [String] = []
         private let lock = NSLock()
@@ -48,7 +71,6 @@ final class ServerManager {
             store.serverRunning = false
             store.log("反代启动失败：\(error.localizedDescription)", .err)
         }
-        // 首帧模型目录 / 凭证就绪后即可用
     }
 
     func stop() {
@@ -59,7 +81,7 @@ final class ServerManager {
 
     func restart() async {
         stop()
-        try? await Task.sleep(nanoseconds: 220_000_000)
+        try? await Task.sleep(nanoseconds: 250_000_000)
         await start()
     }
 
@@ -69,15 +91,14 @@ final class ServerManager {
                        responder: HttpServer.Responder,
                        writer: HttpServer.StreamWriter) async {
         let path = request.path
-        // 鉴权
         if store.settings.requireAuth && !authorized(request) {
             responder.send(HttpServer.Response.error("Invalid API key", status: 401, type: "authentication_error"))
             return
         }
         switch path {
         case "/", "/health", "/v1":
-            responder.send(.json(["status": "ok", "service": "WBHub", "version": Self.version,
-                           "models": store.models.count, "accounts": store.activeAccounts.count]))
+            responder.send(.json(["status": "ok", "service": "WBHub", "version": AppInfo.version,
+                                  "models": store.models.count, "accounts": store.activeAccounts.count]))
         case "/v1/models":
             responder.send(.json(["object": "list", "data": store.models.map { model -> [String: Any] in
                 ["id": model.id, "object": "model", "owned_by": "workbuddy",
@@ -88,12 +109,14 @@ final class ServerManager {
             await chat(request, dialect: .openai, responder: responder, writer: writer)
         case "/v1/messages":
             guard store.settings.enableAnthropic else {
-                responder.send(HttpServer.Response.error("Anthropic 协议已关闭", status: 404)); return
+                responder.send(HttpServer.Response.error("Anthropic 协议已关闭", status: 404))
+                return
             }
             await chat(request, dialect: .anthropic, responder: responder, writer: writer)
         case "/v1/responses":
             guard store.settings.enableResponses else {
-                responder.send(HttpServer.Response.error("Responses 协议已关闭", status: 404)); return
+                responder.send(HttpServer.Response.error("Responses 协议已关闭", status: 404))
+                return
             }
             await chat(request, dialect: .responses, responder: responder, writer: writer)
         case "/v1/models/refresh":
@@ -107,7 +130,10 @@ final class ServerManager {
     }
 
     private func authorized(_ request: HttpServer.Request) -> Bool {
-        guard let header = request.headers["authorization"] else { return false }
+        guard let header = request.headers["authorization"] else {
+            if let alt = request.headers["x-api-key"], alt == store.settings.apiKey { return true }
+            return false
+        }
         let token = header.replacingOccurrences(of: "Bearer ", with: "").trimmingCharacters(in: .whitespaces)
         if token == store.settings.apiKey { return true }
         if let alt = request.headers["x-api-key"], alt == store.settings.apiKey { return true }
@@ -125,7 +151,6 @@ final class ServerManager {
             responder.send(HttpServer.Response.error("Invalid JSON body", status: 400))
             return
         }
-        // 方言统一成 chat completions
         switch dialect {
         case .anthropic: body = PromptEngine.anthropicToChat(body)
         case .responses: body = PromptEngine.responsesToChat(body)
@@ -137,11 +162,11 @@ final class ServerManager {
         let model = resolveModel(requestedModel)
 
         guard let account = pickAccount() else {
-            responder.send(HttpServer.Response.error("没有可用账号，请先在 App 内登录 WorkBuddy", status: 503, type: "insufficient_quota"))
+            responder.send(HttpServer.Response.error("没有可用账号，请先在 App 内登录 WorkBuddy",
+                                                     status: 503, type: "insufficient_quota"))
             return
         }
 
-        // 提示词改写 + 拦截标记规避 + 请求体整形
         PromptEngine.applySystemPrompt(&body, settings: store.settings)
         if store.settings.disguise { PromptEngine.disguiseMessages(&body) }
         body["stream"] = true
@@ -149,7 +174,6 @@ final class ServerManager {
             responder.send(HttpServer.Response.error("Cannot serialize body", status: 400))
             return
         }
-        // 上游拒绝非流式：一律强制流式，非流式请求在本地聚合还原
         let shaped = Wire.prepareChatBody(bodyData, realm: account.realm)
 
         let fresh = await up.ensureFresh(account)
@@ -158,6 +182,7 @@ final class ServerManager {
         let state = StreamState()
         var lastError: Wire.UpstreamError?
         let attempts = max(1, store.settings.retries + 1)
+
         for attempt in 0..<attempts {
             let target = attempt == 0 ? fresh : (pickAccount(skip: attempt) ?? fresh)
             let url = Wire.chatBase(for: target, override: up.baseOverride(for: target)) + "/v2/chat/completions"
@@ -175,12 +200,9 @@ final class ServerManager {
                     }
                     let completion = PromptEngine.aggregate(box.joined, model: model)
                     switch dialect {
-                    case .openai:
-                        responder.send(.json(completion))
-                    case .anthropic:
-                        responder.send(.json(PromptEngine.chatToAnthropic(completion, model: model)))
-                    case .responses:
-                        responder.send(.json(PromptEngine.chatToResponses(completion, model: model)))
+                    case .openai: responder.send(.json(completion))
+                    case .anthropic: responder.send(.json(PromptEngine.chatToAnthropic(completion, model: model)))
+                    case .responses: responder.send(.json(PromptEngine.chatToResponses(completion, model: model)))
                     }
                 }
                 store.requestCount += 1
@@ -189,11 +211,14 @@ final class ServerManager {
                 lastError = error
                 store.log("上游 \(error.status)：\(error.message)", .warn)
                 if state.started {
-                    // 已经发过响应头：用 SSE 错误帧收尾，不再改状态码。
-                    let payload = ["type": "error", "error": ["message": error.message, "type": "upstream_error", "code": error.status]] as [String: Any]
+                    let payload: [String: Any] = ["type": "error",
+                                                  "error": ["message": error.message,
+                                                            "type": "upstream_error",
+                                                            "code": error.status]]
                     if let data = try? JSONSerialization.data(withJSONObject: payload),
                        let text = String(data: data, encoding: .utf8) {
-                        writer.writeText(dialect == .anthropic ? "event: error\ndata: \(text)\n\n" : "data: \(text)\n\n")
+                        writer.writeText(dialect == .anthropic ? "event: error\ndata: \(text)\n\n"
+                                                               : "data: \(text)\n\n")
                     }
                     writer.finish()
                     return
@@ -212,6 +237,7 @@ final class ServerManager {
                 continue
             }
         }
+
         let err = lastError ?? Wire.UpstreamError(kind: .server, status: 502, message: "上游无响应")
         store.log("请求失败：\(err.message)", .err)
         if state.started {
@@ -221,15 +247,14 @@ final class ServerManager {
         }
     }
 
-    /// 流式：把上游 SSE 逐帧翻成对应方言再写出。首帧到达才发响应头，
-    /// 这样上游在出字之前就报错时还能正常回 HTTP 错误码。
+    /// 流式：把上游 SSE 逐帧翻成对应方言再写出。首帧到达才发响应头。
     private func streamChat(_ job: ChatJob, dialect: Dialect, model: String,
                             writer: HttpServer.StreamWriter, state: StreamState) async throws {
         let messageID = "chatcmpl-" + Hashing.randomHex(12)
-        func ensureStart() {
-            guard !state.started else { return }
-            state.started = true
-            writer.startSSE()
+
+        // 只操作 writer（@unchecked Sendable）和 StreamState（内部有锁），不碰 actor 隔离状态。
+        let ensureStart: @Sendable () -> Void = {
+            if state.markStarted() { writer.startSSE() }
         }
 
         _ = try await Net.shared.stream(job.url, headers: job.headers, body: job.body) { line in
@@ -237,15 +262,18 @@ final class ServerManager {
             if payload.hasPrefix("data:") { payload = String(payload.dropFirst(5)) }
             payload = payload.trimmingCharacters(in: .whitespaces)
             guard !payload.isEmpty else { return }
+
             if payload == "[DONE]" {
                 ensureStart()
                 switch dialect {
                 case .openai: writer.writeText("data: [DONE]\n\n")
                 case .anthropic: writer.writeText("event: message_stop\ndata: {\"type\":\"message_stop\"}\n\n")
-                case .responses: writer.writeText("event: response.completed\ndata: {\"type\":\"response.completed\"}\n\n")
+                case .responses:
+                    writer.writeText("event: response.completed\ndata: {\"type\":\"response.completed\"}\n\n")
                 }
                 return
             }
+
             guard let data = payload.data(using: .utf8),
                   var chunk = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return }
 
@@ -264,12 +292,15 @@ final class ServerManager {
                    let text = String(data: out, encoding: .utf8) {
                     writer.writeText("data: \(text)\n\n")
                 }
+
             case .anthropic:
                 let choice = ((chunk["choices"] as? [[String: Any]]) ?? []).first ?? [:]
                 let delta = (choice["delta"] as? [String: Any]) ?? [:]
-                let hasBody = (delta["content"] as? String)?.isEmpty == false
-                    || (delta["reasoning_content"] as? String)?.isEmpty == false
-                    || (choice["finish_reason"] as? String)?.isEmpty == false
+                let textPiece = delta["content"] as? String
+                let thinkPiece = delta["reasoning_content"] as? String
+                let finish = choice["finish_reason"] as? String
+                let hasBody = (textPiece?.isEmpty == false) || (thinkPiece?.isEmpty == false)
+                    || (finish?.isEmpty == false)
                 guard hasBody else { return }
                 ensureStart()
                 if !state.sentRole {
@@ -277,45 +308,50 @@ final class ServerManager {
                     writer.writeText("event: message_start\ndata: {\"type\":\"message_start\",\"message\":{\"id\":\"msg_\(Hashing.randomHex(8))\",\"type\":\"message\",\"role\":\"assistant\",\"model\":\"\(model)\",\"content\":[],\"stop_reason\":null,\"stop_sequence\":null,\"usage\":{\"input_tokens\":0,\"output_tokens\":0}}}\n\n")
                     writer.writeText("event: content_block_start\ndata: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"text\",\"text\":\"\"}}\n\n")
                 }
-                if let text = delta["content"] as? String, !text.isEmpty,
-                   let out = try? JSONSerialization.data(withJSONObject: ["type": "content_block_delta", "index": 0,
-                                                                        "delta": ["type": "text_delta", "text": text]]),
+                if let text = textPiece, !text.isEmpty,
+                   let out = try? JSONSerialization.data(withJSONObject: [
+                       "type": "content_block_delta", "index": 0,
+                       "delta": ["type": "text_delta", "text": text]] as [String: Any]),
                    let s = String(data: out, encoding: .utf8) {
                     writer.writeText("event: content_block_delta\ndata: \(s)\n\n")
                 }
-                if let reasoning = delta["reasoning_content"] as? String, !reasoning.isEmpty,
-                   let out = try? JSONSerialization.data(withJSONObject: ["type": "content_block_delta", "index": 0,
-                                                                        "delta": ["type": "thinking_delta", "thinking": reasoning]]),
+                if let reasoning = thinkPiece, !reasoning.isEmpty,
+                   let out = try? JSONSerialization.data(withJSONObject: [
+                       "type": "content_block_delta", "index": 0,
+                       "delta": ["type": "thinking_delta", "thinking": reasoning]] as [String: Any]),
                    let s = String(data: out, encoding: .utf8) {
                     writer.writeText("event: content_block_delta\ndata: \(s)\n\n")
                 }
-                if let reason = choice["finish_reason"] as? String, !reason.isEmpty {
+                if let reason = finish, !reason.isEmpty {
                     writer.writeText("event: content_block_stop\ndata: {\"type\":\"content_block_stop\",\"index\":0}\n\n")
                     writer.writeText("event: message_delta\ndata: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"\(PromptEngine.anthropicStop(reason))\",\"stop_sequence\":null},\"usage\":{\"output_tokens\":0}}\n\n")
                     writer.writeText("event: message_stop\ndata: {\"type\":\"message_stop\"}\n\n")
                 }
+
             case .responses:
                 let choice = ((chunk["choices"] as? [[String: Any]]) ?? []).first ?? [:]
                 let delta = (choice["delta"] as? [String: Any]) ?? [:]
-                guard (delta["content"] as? String)?.isEmpty == false
-                        || (choice["finish_reason"] as? String)?.isEmpty == false else { return }
+                let textPiece = delta["content"] as? String
+                let finish = choice["finish_reason"] as? String
+                guard textPiece?.isEmpty == false || finish?.isEmpty == false else { return }
                 ensureStart()
                 if !state.sentRole {
                     state.sentRole = true
                     writer.writeText("event: response.created\ndata: {\"type\":\"response.created\",\"response\":{\"id\":\"resp_\(Hashing.randomHex(8))\",\"status\":\"in_progress\",\"model\":\"\(model)\",\"output\":[]}}\n\n")
                 }
-                if let text = delta["content"] as? String, !text.isEmpty,
-                   let out = try? JSONSerialization.data(withJSONObject: ["type": "response.output_text.delta", "delta": text]),
+                if let text = textPiece, !text.isEmpty,
+                   let out = try? JSONSerialization.data(withJSONObject: [
+                       "type": "response.output_text.delta", "delta": text] as [String: Any]),
                    let s = String(data: out, encoding: .utf8) {
                     writer.writeText("event: response.output_text.delta\ndata: \(s)\n\n")
                 }
-                if let reason = choice["finish_reason"] as? String, !reason.isEmpty {
+                if let reason = finish, !reason.isEmpty {
                     writer.writeText("event: response.completed\ndata: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_\(Hashing.randomHex(8))\",\"status\":\"completed\",\"model\":\"\(model)\"}}\n\n")
-                    _ = reason
                 }
             }
         }
-        if !state.started { ensureStart() }
+
+        ensureStart()
         writer.finish()
     }
 
@@ -323,19 +359,21 @@ final class ServerManager {
 
     private func resolveModel(_ requested: String) -> String {
         let cleaned = requested.trimmingCharacters(in: .whitespaces)
-        if cleaned.isEmpty || cleaned == "auto" { return store.settings.defaultModel == "auto" ? "deepseek-v4-flash" : store.settings.defaultModel }
-        // 去掉常见前缀，例如 openai/gpt-5.5
+        if cleaned.isEmpty || cleaned == "auto" {
+            return store.settings.defaultModel == "auto" ? "deepseek-v4-flash" : store.settings.defaultModel
+        }
         if let slash = cleaned.lastIndex(of: "/") { return String(cleaned[cleaned.index(after: slash)...]) }
         return cleaned
     }
 
     private func pickAccount(skip: Int = 0) -> Account? {
-        let pool = store.activeAccounts.filter { !$0.accessToken.isEmpty || !$0.refreshToken.isEmpty }
+        let pool = store.activeAccounts
+            .filter { !$0.accessToken.isEmpty || !$0.refreshToken.isEmpty }
             .sorted { $0.credits > $1.credits }
         guard !pool.isEmpty else { return nil }
-        let idx = rotation["cursor"] ?? 0
-        rotation["cursor"] = (idx + 1 + skip) % pool.count
-        return pool[(idx + skip) % pool.count]
+        let idx = (rotation + skip) % pool.count
+        if skip == 0 { rotation = (rotation + 1) % pool.count }
+        return pool[idx]
     }
 
     private func conversationID(from body: [String: Any]) -> String {
@@ -358,6 +396,4 @@ final class ServerManager {
         store.models = list
         store.log("模型目录已更新：\(list.count) 个", .ok)
     }
-
-    nonisolated static var version: String { AppInfo.version }
 }
