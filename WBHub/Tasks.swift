@@ -88,8 +88,10 @@ final class TaskRunner {
         for account in accounts {
             let fresh = await up.ensureFresh(account)
 
-            // 跑任务前先拿一次剩余积分作为基线
-            let before = await up.credits(fresh)?.total
+            // 跑任务前先拿一次剩余积分作为基线（同时记录诊断）
+            let beforeProbe = await up.probeCredits(fresh)
+            store.creditProbes[fresh.id.uuidString] = beforeProbe
+            let before = beforeProbe.total
             if let before = before, let idx = store.accounts.firstIndex(where: { $0.id == fresh.id }) {
                 store.accounts[idx].credits = before
             }
@@ -98,7 +100,9 @@ final class TaskRunner {
             var r = await runOne(fresh, night: night)
 
             // 跑完后再取一次，用差值作为「实际到账」
-            let after = await up.credits(fresh)?.total
+            let afterProbe = await up.probeCredits(fresh)
+            store.creditProbes[fresh.id.uuidString] = afterProbe
+            let after = afterProbe.total
             r.creditBefore = before
             r.creditAfter = after
 
@@ -111,6 +115,13 @@ final class TaskRunner {
                 store.accounts[idx].lastRun = Self.stamp()
                 store.accounts[idx].lastCheckin = Self.dayKey()
                 if let after = after { store.accounts[idx].credits = after }
+            }
+
+            // 无法读取积分时明确告知原因
+            if beforeProbe.total == nil || afterProbe.total == nil {
+                let why = (afterProbe.total == nil ? afterProbe : beforeProbe).attempts.last ?? "未知原因"
+                results.steps.append(TaskStep(label: "summary", ok: false,
+                                              message: "\(fresh.displayName)：积分读取失败，无法计算到账（\(why)）"))
             }
 
             // 差值确认后，补一条汇总步骤，避免用户以为「没加积分」
@@ -162,6 +173,58 @@ final class TaskRunner {
     }
 
     // MARK: - 签到
+
+    /// 只读核查：向服务端读取签到状态与成长任务进度，不执行任何写操作。
+    func checkinStatus(_ account: Account) async -> String? {
+        guard account.realm == .cn else {
+            return "国际版账号无成长中心，只能反代"
+        }
+        var activity: [String: Any] = [:]
+        if let env = try? await meter(account, "/v2/billing/meter/checkin-activity-status", body: [String: Any]()),
+           let data = env.data as? [String: Any] {
+            activity = data
+        } else if let env = try? await meter(account, "/billing/meter/checkin-activity-status", body: [String: Any]()),
+                  let data = env.data as? [String: Any] {
+            activity = data
+        }
+
+        var parts: [String] = []
+        if (activity["active"] as? Bool) == false {
+            parts.append("签到活动已结束")
+        } else if (activity["today_checked_in"] as? Bool) == true {
+            let streak = (activity["streak_days"] as? NSNumber)?.intValue ?? 0
+            parts.append("今日已签到（连签 \(streak) 天）")
+        } else if !activity.isEmpty {
+            parts.append("今日未签到")
+        } else {
+            parts.append("签到状态未知")
+        }
+
+        // 成长任务真实进度
+        if let env = try? await growth(account, "/v2/activity/growth/tasks", method: "GET"),
+           let data = env.data as? [String: Any],
+           let rows = data["tasks"] as? [[String: Any]] {
+            var claimed = 0, claimable = 0, doing = 0, locked = 0
+            for row in rows {
+                let status = ((row["accept_status"] as? String) ?? "").lowercased()
+                let progress = row["progress"] as? [String: Any]
+                let current = (progress?["current"] as? NSNumber)?.intValue ?? 0
+                let target = (progress?["target"] as? NSNumber)?.intValue ?? 0
+                if status == "claimed" { claimed += 1 }
+                else if target > 0 && current >= target { claimable += 1 }
+                else if current > 0 { doing += 1 }
+                else { locked += 1 }
+            }
+            parts.append("任务 \(rows.count) 个：已领 \(claimed)")
+            if claimable > 0 { parts.append("可领未领 \(claimable)") }
+            if doing > 0 { parts.append("进行中 \(doing)") }
+            if locked > 0 { parts.append("未开始 \(locked)") }
+        } else {
+            parts.append("任务进度读取失败")
+        }
+
+        return parts.joined(separator: " · ")
+    }
 
     func checkin(_ account: Account) async -> TaskStep {
         var activity: [String: Any] = [:]

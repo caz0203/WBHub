@@ -3,6 +3,9 @@ import SwiftUI
 struct TasksView: View {
     @EnvironmentObject var store: AppStore
     @State private var showOnlyFailed = false
+    @State private var refreshing = false
+    @State private var refreshNote = ""
+    @State private var verifying = false
 
     private var visibleSteps: [TaskStep] {
         showOnlyFailed ? store.currentTasks.filter { !$0.ok } : store.currentTasks
@@ -10,14 +13,24 @@ struct TasksView: View {
 
     var body: some View {
         Screen("任务", trailing: AnyView(
-            Button {
-                showOnlyFailed.toggle()
-            } label: {
-                Image(systemName: showOnlyFailed
-                      ? "line.3.horizontal.decrease.circle.fill"
-                      : "line.3.horizontal.decrease.circle")
+            HStack(spacing: 12) {
+                Button {
+                    Task { await refreshCredits() }
+                } label: {
+                    if refreshing { ProgressView().controlSize(.small) }
+                    else { Image(systemName: "arrow.clockwise") }
+                }
+                .disabled(refreshing)
+
+                Button {
+                    showOnlyFailed.toggle()
+                } label: {
+                    Image(systemName: showOnlyFailed
+                          ? "line.3.horizontal.decrease.circle.fill"
+                          : "line.3.horizontal.decrease.circle")
+                }
+                .disabled(store.currentTasks.isEmpty)
             }
-            .disabled(store.currentTasks.isEmpty)
         )) {
             if !store.lastError.isEmpty {
                 Panel {
@@ -34,10 +47,163 @@ struct TasksView: View {
                 }
             }
             runCard
+            creditCard
+            verifyPanel
             accountPanel
             resultPanel
             footer
         }
+    }
+
+    // MARK: - 积分
+
+    private var creditCard: some View {
+        Panel("积分") {
+            HStack(spacing: 9) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("总积分")
+                        .font(.system(size: 10))
+                        .foregroundStyle(Color.secondary.opacity(0.85))
+                    Text(Num.compact(Int(totalCredits)))
+                        .font(.system(size: 20, weight: .bold, design: .rounded))
+                        .foregroundStyle(Theme.warn)
+                }
+                Spacer()
+                Button {
+                    Task { await refreshCredits() }
+                } label: {
+                    HStack(spacing: 5) {
+                        if refreshing {
+                            ProgressView().controlSize(.small)
+                        } else {
+                            Image(systemName: "arrow.clockwise").font(.system(size: 11, weight: .semibold))
+                        }
+                        Text(refreshing ? "刷新中" : "刷新")
+                            .font(.system(size: 12, weight: .medium))
+                    }
+                    .padding(.horizontal, 12).padding(.vertical, 7)
+                    .background(Capsule().fill(Theme.accent.opacity(0.12)))
+                    .foregroundStyle(Theme.accent)
+                }
+                .buttonStyle(.plain)
+                .disabled(refreshing)
+            }
+            .padding(.horizontal, Theme.rowPadH)
+            .padding(.vertical, 11)
+
+            if !refreshNote.isEmpty {
+                RowDivider(inset: 54)
+                Text(refreshNote)
+                    .font(.system(size: 10.5))
+                    .foregroundStyle(Color.secondary.opacity(0.85))
+                    .padding(.horizontal, Theme.rowPadH)
+                    .padding(.vertical, 8)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            if !store.accounts.isEmpty {
+                RowDivider(inset: 54)
+                ForEach(Array(store.accounts.enumerated()), id: \.element.id) { index, account in
+                    let probe = store.creditProbes[account.id.uuidString]
+                    VStack(spacing: 0) {
+                        HStack(spacing: 8) {
+                            Circle()
+                                .fill(probe?.ok == true ? Theme.ok
+                                      : (probe == nil ? Color.secondary.opacity(0.35) : Theme.err))
+                                .frame(width: 5.5, height: 5.5)
+                            Text(account.displayName)
+                                .font(.system(size: 11.5))
+                                .lineLimit(1)
+                            Spacer(minLength: 4)
+                            Text("(Num.credit(account.credits))")
+                                .font(.system(size: 11.5, weight: .semibold, design: .rounded))
+                                .foregroundStyle(Theme.warn)
+                        }
+                        .padding(.horizontal, Theme.rowPadH)
+                        .padding(.vertical, 8)
+
+                        if let probe = probe {
+                            if !probe.ok {
+                                Text(probe.summary)
+                                    .font(.system(size: 9.5))
+                                    .foregroundStyle(Theme.err)
+                                    .padding(.horizontal, Theme.rowPadH)
+                                    .padding(.bottom, 7)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                    .fixedSize(horizontal: false, vertical: true)
+                            }
+                        }
+                    }
+                    if index < store.accounts.count - 1 { RowDivider(inset: 28) }
+                }
+            }
+        }
+    }
+
+    private var totalCredits: Double {
+        store.accounts.reduce(0) { $0 + $1.credits }
+    }
+
+    // MARK: - 完成度核查
+
+    private var verifyPanel: some View {
+        Panel("完成度核查", note: "向服务器重新读取签到状态与成长任务进度，确认任务是否真的完成。") {
+            TapRow(action: { Task { await verify() } }) {
+                HStack(spacing: 11) {
+                    ZStack {
+                        RoundedRectangle(cornerRadius: 8.5, style: .continuous)
+                            .fill(Theme.accent2.opacity(0.13)).frame(width: 29, height: 29)
+                        Image(systemName: "checkmark.shield")
+                            .font(.system(size: 12.5, weight: .semibold))
+                            .foregroundStyle(Theme.accent2)
+                    }
+                    VStack(alignment: .leading, spacing: 1.5) {
+                        Text("核查真实完成情况").font(.system(size: 13.5))
+                        Text("读取服务端签到与任务状态，不依赖本地记录")
+                            .font(.system(size: 10.5))
+                            .foregroundStyle(Color.secondary.opacity(0.8))
+                    }
+                    Spacer()
+                    if verifying { ProgressView().controlSize(.small) }
+                }
+                .padding(.horizontal, Theme.rowPadH)
+                .padding(.vertical, 10)
+            }
+        }
+    }
+
+    // MARK: - 动作
+
+    private func refreshCredits() async {
+        guard !refreshing else { return }
+        refreshing = true
+        refreshNote = ""
+        let r = await store.refreshCreditsWithDiagnostics()
+        var parts: [String] = []
+        parts.append("成功 (r.ok) 个")
+        if r.failed > 0 { parts.append("失败 (r.failed) 个") }
+        if r.gained > 0.5 { parts.append("增加 (Num.credit(r.gained))") }
+        refreshNote = parts.joined(separator: " · ")
+        store.log("刷新积分：\(refreshNote)", r.failed == 0 ? .ok : .warn)
+        refreshing = false
+    }
+
+    private func verify() async {
+        guard !verifying else { return }
+        verifying = true
+        var lines: [String] = []
+        for account in store.accounts {
+            if let check = await TaskRunner.shared.checkinStatus(account) {
+                lines.append("(account.displayName)：\(check)")
+            } else {
+                lines.append("(account.displayName)：无法读取签到状态")
+            }
+        }
+        if lines.isEmpty { lines.append("没有账号可核查") }
+        store.currentTasks.append(TaskStep(label: "核查", ok: true,
+                                           message: lines.joined(separator: "\n")))
+        store.log("完成度核查完成", .info)
+        verifying = false
     }
 
     // MARK: - 运行

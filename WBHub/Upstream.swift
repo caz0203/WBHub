@@ -1,5 +1,24 @@
 import Foundation
 
+/// 一次积分查询的结果与诊断信息
+struct CreditProbe: Sendable {
+    var total: Double? = nil
+    var isPaid: Bool = false
+    var packageCount: Int = 0
+    /// 实际成功的 host+path（nil 表示全部失败）
+    var endpoint: String? = nil
+    /// 逐条尝试记录，用于界面展示拿不到积分的原因
+    var attempts: [String] = []
+    var ok: Bool { total != nil }
+    var summary: String {
+        if let total = total {
+            let t = total == total.rounded() ? String(Int(total)) : String(format: "%.1f", total)
+            return "剩余 \(t) 积分" + (isPaid ? " · 付费" : "")
+        }
+        return attempts.last ?? "查询失败"
+    }
+}
+
 /// 上游业务：登录、刷新、模型目录、积分、签到、成长任务、活动。
 @MainActor
 final class Upstream {
@@ -243,31 +262,107 @@ final class Upstream {
         }
     }
 
-    func credits(_ account: Account) async -> Credits? {
+    /// 查询积分，返回完整诊断（失败时也能说明原因）
+    func probeCredits(_ account: Account) async -> CreditProbe {
+        var probe = CreditProbe()
         let fresh = await ensureFresh(account)
         let bases = Wire.billingBases(for: fresh, override: baseOverride(for: fresh))
         let headers = Wire.billingHeaders(account: fresh)
-        for path in ["/billing/meter/get-user-resource-summary", "/v2/billing/meter/get-user-resource-summary"] {
+
+        let paths = [
+            "/billing/meter/get-user-resource-summary",
+            "/v2/billing/meter/get-user-resource-summary",
+            "/billing/meter/get-user-resource",
+            "/v2/billing/meter/get-user-resource",
+        ]
+
+        for path in paths {
             for base in bases {
-                guard let resp = try? await net.send(base + path, method: "POST", headers: headers,
-                                                     body: Data("{}".utf8)),
-                      resp.status < 400, let env = Net.envelope(resp), env.code == 0,
-                      let data = env.data as? [String: Any] else { continue }
-                let pkgs = (data["Packages"] as? [[String: Any]]) ?? []
-                var list: [(name: String, remain: Double, total: Double, used: Double)] = []
-                var total = 0.0
-                for (i, p) in pkgs.enumerated() {
-                    let remain = (p["CycleRemainCapacity"] as? NSNumber)?.doubleValue ?? 0
-                    let cap = (p["CycleTotalCapacity"] as? NSNumber)?.doubleValue ?? 0
-                    let used = (p["CycleUsedCapacity"] as? NSNumber)?.doubleValue ?? 0
-                    total += remain
-                    list.append((name: i == 0 ? "主套餐" : "加量包\(i)", remain: remain, total: cap, used: used))
+                let host = URL(string: base)?.host ?? base
+                let label = "\(host)\(path)"
+                let resp: Net.Response
+                do {
+                    resp = try await net.send(base + path, method: "POST",
+                                              headers: headers, body: Data("{}".utf8))
+                } catch {
+                    probe.attempts.append("\(label)：网络失败 \(error.localizedDescription)")
+                    continue
                 }
-                return Credits(total: total, packages: list,
-                               isPaid: (data["IsPaidUser"] as? Bool) ?? false)
+                if resp.status >= 400 {
+                    probe.attempts.append("\(label)：HTTP \(resp.status)")
+                    continue
+                }
+                guard let env = Net.envelope(resp) else {
+                    probe.attempts.append("\(label)：响应不是 JSON")
+                    continue
+                }
+                if env.code != 0 {
+                    let msg = env.msg.isEmpty ? "code=\(env.code)" : env.msg
+                    probe.attempts.append("\(label)：\(msg)")
+                    continue
+                }
+                guard let data = env.data as? [String: Any] else {
+                    probe.attempts.append("\(label)：data 为空")
+                    continue
+                }
+
+                // 1) 标准 Packages 结构
+                if let pkgs = data["Packages"] as? [[String: Any]], !pkgs.isEmpty {
+                    var total = 0.0
+                    for p in pkgs {
+                        total += Self.number(p, ["CycleRemainCapacity", "remain_capacity",
+                                                 "remainCapacity", "remain", "balance"])
+                    }
+                    probe.total = total
+                    probe.packageCount = pkgs.count
+                    probe.isPaid = (data["IsPaidUser"] as? Bool) ?? false
+                    probe.endpoint = label
+                    return probe
+                }
+
+                // 2) 扁平字段兜底（不同活动/版本字段名不一致）
+                let flat = Self.number(data, ["remain_capacity", "remainCapacity", "remain",
+                                              "credit", "credits", "balance", "total_credit",
+                                              "totalCredit", "available"])
+                if flat > 0 || data.keys.contains(where: { $0.lowercased().contains("credit") }) {
+                    probe.total = flat
+                    probe.packageCount = 0
+                    probe.isPaid = (data["IsPaidUser"] as? Bool) ?? (data["is_paid_user"] as? Bool) ?? false
+                    probe.endpoint = label
+                    return probe
+                }
+
+                probe.attempts.append("\(label)：成功但无积分字段（keys: \(data.keys.sorted().prefix(6).joined(separator: ",")))")
             }
         }
-        return nil
+        return probe
+    }
+
+    /// 兼容旧调用
+    func credits(_ account: Account) async -> Credits? {
+        let probe = await probeCredits(account)
+        guard let total = probe.total else { return nil }
+        var list: [(name: String, remain: Double, total: Double, used: Double)] = []
+        if probe.packageCount > 0 {
+            for i in 0..<probe.packageCount {
+                list.append((name: i == 0 ? "主套餐" : "加量包\(i)", remain: 0, total: 0, used: 0))
+            }
+            list[0] = (name: "主套餐", remain: total, total: total, used: 0)
+        } else {
+            list = [(name: "主套餐", remain: total, total: total, used: 0)]
+        }
+        return Credits(total: total, packages: list, isPaid: probe.isPaid)
+    }
+
+    /// 宽松取数：字段名不确定时依次尝试，兼容数字与字符串
+    nonisolated static func number(_ obj: [String: Any], _ keys: [String]) -> Double {
+        for k in keys {
+            if let n = obj[k] as? NSNumber { return n.doubleValue }
+            if let d = obj[k] as? Double { return d }
+            if let i = obj[k] as? Int { return Double(i) }
+            if let str = obj[k] as? String, let d = Double(str) { return d }
+        }
+        return 0
     }
 
     func usage(_ account: Account) async -> String {

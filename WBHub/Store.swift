@@ -15,6 +15,8 @@ final class AppStore: ObservableObject {
     @Published var requestCount = 0
     @Published var lastError: String = ""
     @Published var requestLogs: [RequestLog] = []
+    /// 每个账号最近一次积分查询的诊断（key = account.id.uuidString）
+    @Published var creditProbes: [String: CreditProbe] = [:]
 
     private let io = DispatchQueue(label: "wbhub.store")
     private var saveWork: DispatchWorkItem?
@@ -160,5 +162,27 @@ final class AppStore: ObservableObject {
 extension AppStore {
     func refreshCreditsAsync() async {
         await Upstream.shared.refreshCredits()
+    }
+
+    /// 刷新全部账号积分，同时保留每次查询的诊断信息
+    @discardableResult
+    func refreshCreditsWithDiagnostics() async -> (ok: Int, failed: Int, gained: Double) {
+        var ok = 0, failed = 0
+        var gained = 0.0
+        for account in accounts {
+            let before = account.credits
+            let probe = await Upstream.shared.probeCredits(account)
+            creditProbes[account.id.uuidString] = probe
+            guard let idx = accounts.firstIndex(where: { $0.id == account.id }) else { continue }
+            if let total = probe.total {
+                accounts[idx].credits = total
+                if total > before { gained += total - before }
+                ok += 1
+            } else {
+                failed += 1
+            }
+        }
+        save()
+        return (ok, failed, gained)
     }
 }
