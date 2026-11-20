@@ -5,7 +5,7 @@ import Security
 
 /// 与全局 actor 无关的常量，任何上下文都能读。
 enum AppInfo {
-    static let version = "1.0.0"
+    static let version = "1.0.2"
     static let author = "小帅"
     static let authorQQ = "57844458"
     static let repo = "WBHub"
